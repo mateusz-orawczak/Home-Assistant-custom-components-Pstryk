@@ -1,0 +1,19 @@
+{
+    "config": {
+        "step": {
+            "user": {
+                "title": "Pstryk",
+                "description": "Set up your Pstryk integration",
+                "data": {
+                    "email": "Email",
+                    "password": "Password"
+                }
+            }
+        },
+        "error": {
+            "auth": "Email/Password is incorrect.",
+            "connection": "Unable to connect to the server.",
+            "unknown": "Unexpected error occurred."
+        }
+    }
+}
