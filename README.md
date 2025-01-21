@@ -40,11 +40,11 @@ The integration creates the following sensors:
 | Sensor | Description | Unit |
 |--------|-------------|------|
 | Today's Energy Usage | Energy consumed today | kWh |
-| Today's Energy Cost | Cost of energy consumed today | EUR |
+| Today's Energy Cost | Cost of energy consumed today | PLN |
 | This Week's Energy Usage | Energy consumed this week | kWh |
-| This Week's Energy Cost | Cost of energy consumed this week | EUR |
+| This Week's Energy Cost | Cost of energy consumed this week | PLN |
 | This Month's Energy Usage | Energy consumed this month | kWh |
-| This Month's Energy Cost | Cost of energy consumed this month | EUR |
+| This Month's Energy Cost | Cost of energy consumed this month | PLN |
 
 ## Troubleshooting
 
