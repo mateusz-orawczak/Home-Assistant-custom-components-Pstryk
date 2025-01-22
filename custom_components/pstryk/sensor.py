@@ -1,7 +1,6 @@
 """Platform for sensor integration."""
 from __future__ import annotations
-
-from datetime import timedelta
+from datetime import datetime, timedelta
 import logging
 
 from homeassistant.components.sensor import (
@@ -16,10 +15,66 @@ from homeassistant.helpers.update_coordinator import (
     CoordinatorEntity,
     DataUpdateCoordinator,
 )
+from homeassistant.helpers.template import Template
 
 from .const import DOMAIN, SENSOR_TYPES
 
 _LOGGER = logging.getLogger(__name__)
+
+class PstrykTemplateSensor(CoordinatorEntity, SensorEntity):
+    """Representation of a Pstryk template sensor."""
+
+    def __init__(self, hass, coordinator, name, unique_id, template_str):
+        """Initialize the template sensor."""
+        super().__init__(coordinator)
+        self._attr_name = name
+        self._attr_unique_id = f"{DOMAIN}_{unique_id}"
+        self._attr_device_class = SensorDeviceClass.MONETARY
+        self._attr_native_unit_of_measurement = "PLN/kWh"
+        self._template = Template(template_str, hass)
+        self._attr_icon = "mdi:currency-usd"
+
+    @property
+    def native_value(self):
+        """Return the state of the sensor."""
+        try:
+            return self._template.async_render()
+        except Exception as err:
+            _LOGGER.error("Error rendering template: %s", err)
+            return None
+
+class PstrykIsCheapestSensor(CoordinatorEntity, SensorEntity):
+    """Representation of a Pstryk is cheapest sensor."""
+
+    def __init__(self, coordinator):
+        """Initialize the is cheapest sensor."""
+        super().__init__(coordinator)
+        self._attr_name = "Is Cheapest Electricity Price"
+        self._attr_unique_id = f"{DOMAIN}_is_cheapest_price"
+        self._attr_icon = "mdi:cash-check"
+        self._attr_device_class = None  # Binary sensors don't use device class
+        self._attr_state_class = None   # Binary sensors don't use state class
+        self._attr_native_unit_of_measurement = None  # Boolean sensors don't have units
+
+    @property
+    def native_value(self) -> str | None:
+        """Return if current price is the cheapest."""
+        if self.coordinator.data is None or "hourly_prices" not in self.coordinator.data:
+            return None
+            
+        prices = self.coordinator.data.get("hourly_prices", {})
+        if not prices:
+            return None
+
+        current_hour = datetime.now().strftime('%Y-%m-%dT%H:00:00+00:00')
+        current_price = prices.get(current_hour)
+        
+        if current_price is None:
+            return None
+            
+        min_price = min(prices.values())
+        # Return string 'on'/'off' instead of boolean for better HA compatibility
+        return "on" if current_price == min_price else "off"
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -33,10 +88,13 @@ async def async_setup_entry(
         hass,
         _LOGGER,
         name="pstryk",
-        update_method=api_client.get_all_data,
+        update_method=api_client.get_prices,
         update_interval=timedelta(minutes=3),
     )
 
+    # Start WebSocket connection
+    await api_client.start_websocket(coordinator.async_set_updated_data)
+    
     await coordinator.async_config_entry_first_refresh()
 
     entities = []
@@ -55,6 +113,31 @@ async def async_setup_entry(
     
     # Add hourly prices sensor
     entities.append(PstrykHourlyPricesSensor(coordinator))
+
+    # Add current price template sensor
+    entities.append(
+        PstrykTemplateSensor(
+            hass,
+            coordinator,
+            "Current Electricity Price",
+            "current_price",
+            "{{ states.sensor.today_s_electricity_prices.attributes.hourly_prices[now().strftime('%Y-%m-%dT%H:00:00+00:00')] }}"
+        )
+    )
+
+    # Add next hour price template sensor
+    entities.append(
+        PstrykTemplateSensor(
+            hass,
+            coordinator,
+            "Next Hour Electricity Price",
+            "next_hour_price",
+            "{{ states.sensor.today_s_electricity_prices.attributes.hourly_prices[(now() + timedelta(hours=1)).strftime('%Y-%m-%dT%H:00:00+00:00')] }}"
+        )
+    )
+
+    # Add is cheapest price sensor
+    entities.append(PstrykIsCheapestSensor(coordinator))
 
     async_add_entities(entities)
 
@@ -86,17 +169,8 @@ class PstrykHourlyPricesSensor(CoordinatorEntity, SensorEntity):
         self._attr_name = "Today's Electricity Prices"
         self._attr_unique_id = f"{DOMAIN}_today_prices"
         self._attr_device_class = SensorDeviceClass.MONETARY
-        self._attr_state_class = SensorStateClass.MEASUREMENT
         self._attr_native_unit_of_measurement = "PLN/kWh"
         self._attr_icon = "mdi:currency-usd"
-        self._attr_extra_state_attributes = {}
-
-    @property
-    def native_value(self):
-        """Return the current price."""
-        if self.coordinator.data is None or "current_price" not in self.coordinator.data:
-            return None
-        return self.coordinator.data["current_price"]
 
     @property
     def extra_state_attributes(self):
@@ -105,7 +179,11 @@ class PstrykHourlyPricesSensor(CoordinatorEntity, SensorEntity):
             return {}
             
         return {
-            "hourly_prices": self.coordinator.data["hourly_prices"],
-            "next_hour_price": self.coordinator.data.get("next_hour_price"),
+            "hourly_prices": self.coordinator.data.get("hourly_prices", {}),
             "prices_updated": self.coordinator.data.get("prices_updated"),
         }
+
+    @property
+    def native_value(self) -> None:
+        """Return None as we don't need a state value."""
+        return None

@@ -6,6 +6,6 @@
   "dependencies": [],
   "codeowners": ["@mateusz-orawczak"],
   "requirements": [],
-  "iot_class": "cloud_polling",
+  "iot_class": "cloud_push",
   "config_flow": true
 }

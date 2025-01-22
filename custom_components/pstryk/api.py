@@ -1,7 +1,9 @@
 """API client for Pstryk."""
 from datetime import datetime, timedelta
+import json
 import logging
-from typing import Dict, Optional
+from typing import Dict, Optional, Callable
+import asyncio
 
 import aiohttp
 import async_timeout
@@ -9,14 +11,9 @@ import async_timeout
 from .const import (
     API_LOGIN_ENDPOINT,
     API_REFRESH_TOKEN_ENDPOINT,
-    API_ME_ENDPOINT,
-    API_TODAY_USAGE_ENDPOINT,
-    API_WEEK_USAGE_ENDPOINT,
-    API_MONTH_USAGE_ENDPOINT,
-    API_TODAY_COST_ENDPOINT,
-    API_WEEK_COST_ENDPOINT,
-    API_MONTH_COST_ENDPOINT,
+    API_METER_ENDPOINT,
     API_PRICES_ENDPOINT,
+    WS_ENDPOINT,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -33,11 +30,14 @@ class PstrykApiClient:
         self._refresh_token = None
         self._token_expires = None
         self._meter_id = None
+        self._ws = None
+        self._ws_task = None
+        self._ws_callback = None
+        self._last_data = {}
 
     async def authenticate(self) -> bool:
         """Authenticate with the API and get meter ID."""
         try:
-            # First authenticate
             async with async_timeout.timeout(10):
                 response = await self._session.post(
                     API_LOGIN_ENDPOINT,
@@ -47,33 +47,137 @@ class PstrykApiClient:
                     data = await response.json()
                     self._access_token = data["access"]
                     self._refresh_token = data["refresh"]
-                    self._token_expires = datetime.now() + timedelta(hours=1)
+                    self._token_expires = datetime.now() + timedelta(minutes=10)
                     
-                    # Now get the meter ID
                     return await self._fetch_meter_id()
                 return False
         except Exception as err:
             _LOGGER.error("Error authenticating: %s", err)
             return False
 
+    async def start_websocket(self, callback: Callable[[Dict], None]) -> None:
+        """Start WebSocket connection."""
+        if self._ws_task is not None:
+            return
+
+        self._ws_callback = callback
+        self._ws_task = asyncio.create_task(self._websocket_loop())
+
+    async def _websocket_loop(self) -> None:
+        """Maintain WebSocket connection."""
+        retry_count = 0
+        
+        while True:
+            try:
+                retry_count += 1
+                _LOGGER.error(
+                    "PSTRYK - WebSocket connection attempt %d",
+                    retry_count,
+                )
+                
+                await self._connect_websocket()
+            except Exception as err:
+                _LOGGER.error("WebSocket error: %s", err)
+                await asyncio.sleep(5)  # Wait before reconnecting
+
+    async def _connect_websocket(self) -> None:
+        """Connect to WebSocket and handle messages."""
+        if not self._meter_id:
+            _LOGGER.error("PSTRYK - WebSocket connection failed: No meter_id available")
+            if not await self._fetch_meter_id():
+                return
+
+        ws_url = WS_ENDPOINT.format(meter_id=self._meter_id)
+        _LOGGER.error("PSTRYK - Attempting WebSocket connection to: %s", ws_url)
+        
+        try:
+            async with self._session.ws_connect(
+                ws_url,
+                headers={
+                    "Sec-WebSocket-Protocol": self._access_token,
+                },
+            ) as websocket:
+                self._ws = websocket
+                _LOGGER.error("PSTRYK - WebSocket connected successfully")
+
+                async for msg in websocket:
+                    if msg.type == aiohttp.WSMsgType.TEXT:
+                        try:
+                            data = json.loads(msg.data)
+                            _LOGGER.error("PSTRYK - WebSocket received text message: %s", msg.data[:200])
+                            self._process_ws_message(data)
+                        except json.JSONDecodeError:
+                            _LOGGER.error("PSTRYK - Invalid JSON in WebSocket message: %s", msg.data[:200])
+                    elif msg.type == aiohttp.WSMsgType.BINARY:
+                        try:
+                            data = json.loads(msg.data.decode())
+                            _LOGGER.error("PSTRYK - WebSocket received binary message: %s", str(data)[:200])
+                            self._process_ws_message(data)
+                        except json.JSONDecodeError:
+                            _LOGGER.error("PSTRYK - Invalid JSON in binary WebSocket message")
+                        except UnicodeDecodeError:
+                            _LOGGER.error("PSTRYK - Failed to decode binary WebSocket message")
+                    elif msg.type == aiohttp.WSMsgType.ERROR:
+                        _LOGGER.error("PSTRYK - WebSocket connection error: %s", websocket.exception())
+                        break
+                    elif msg.type == aiohttp.WSMsgType.CLOSED:
+                        _LOGGER.error("PSTRYK - WebSocket connection closed")
+                        break
+                    elif msg.type == aiohttp.WSMsgType.CLOSE:
+                        _LOGGER.error("PSTRYK - WebSocket closing")
+                        break
+                    else:
+                        _LOGGER.error("PSTRYK - Unexpected WebSocket message type: %s", msg.type)
+        except aiohttp.ClientResponseError as resp_err:
+            if resp_err.status == 500:
+                _LOGGER.error("PSTRYK - WebSocket authentication error (500), attempting token refresh")
+                if await self.refresh_token():
+                    _LOGGER.error("PSTRYK - Token refreshed successfully, retrying connection")
+                    raise  # Re-raise to trigger reconnection with new token
+                else:
+                    _LOGGER.error("PSTRYK - Token refresh failed")
+            raise  # Re-raise other response errors
+        except aiohttp.ClientError as client_err:
+            _LOGGER.error("PSTRYK - WebSocket client error: %s", client_err)
+            raise
+        except Exception as err:
+            _LOGGER.error("PSTRYK - WebSocket unexpected error: %s", err)
+            raise
+
+    def _process_ws_message(self, data: Dict) -> None:
+        """Process WebSocket message and update data."""
+        try:
+            usage_data = {
+                "today_usage": data.get("day_to_date", {}).get("fae_usage"),
+                "today_cost": data.get("day_to_date", {}).get("fae_cost"),
+                "week_usage": data.get("week_to_date", {}).get("fae_usage"),
+                "week_cost": data.get("week_to_date", {}).get("fae_cost"),
+                "month_usage": data.get("month_to_date", {}).get("fae_usage"),
+                "month_cost": data.get("month_to_date", {}).get("fae_cost"),
+            }
+            
+            self._last_data.update(usage_data)
+            
+            if self._ws_callback:
+                self._ws_callback(self._last_data)
+        except Exception as err:
+            _LOGGER.error("Error processing WebSocket message: %s", err)
+
     async def _fetch_meter_id(self) -> bool:
         """Fetch meter ID from /api/me endpoint."""
-        # hardcoded for now
-        self._meter_id = "3019"
-        return True
-
         try:
             async with async_timeout.timeout(10):
                 response = await self._session.get(
-                    API_ME_ENDPOINT,
+                    API_METER_ENDPOINT,
                     headers={"Authorization": f"Bearer {self._access_token}"},
                 )
                 if response.status == 200:
                     data = await response.json()
-                    self._meter_id = data.get("meter_id")
-                    if self._meter_id:
-                        _LOGGER.info("Successfully retrieved meter ID: %s", self._meter_id)
-                        return True
+                    if isinstance(data, list) and len(data) > 0:
+                        self._meter_id = data[0].get("id")
+                        if self._meter_id:
+                            _LOGGER.info("Successfully retrieved meter ID: %s", self._meter_id)
+                            return True
                     _LOGGER.error("No meter ID found in response")
                     return False
                 return False
@@ -96,6 +200,7 @@ class PstrykApiClient:
                     endpoint,
                     headers={"Authorization": f"Bearer {self._access_token}"},
                 )
+                _LOGGER.error("PSTRYK - API call status %s from %s", response.status, endpoint)
                 if response.status == 200:
                     return await response.json()
                 return None
@@ -116,77 +221,22 @@ class PstrykApiClient:
             async with async_timeout.timeout(10):
                 response = await self._session.post(
                     API_REFRESH_TOKEN_ENDPOINT,
-                    headers={"Authorization": f"Bearer {self._refresh_token}"},
+                    json={"refresh": self._access_token}
                 )
                 if response.status == 200:
                     data = await response.json()
                     self._access_token = data["access"]
-                    self._token_expires = datetime.now() + timedelta(hours=1)
+                    self._token_expires = datetime.now() + timedelta(minutes=10)
                     return True
                 return False
         except Exception as err:
             _LOGGER.error("Error refreshing token: %s", err)
             return False
 
-    async def get_today_usage(self) -> dict | None:
-        """Get today's energy usage data."""
-        response = await self._make_api_call(API_TODAY_USAGE_ENDPOINT)
-        if response:
-            return {
-                "usage": response.get("fae_total_usage"),
-            }
-        return None
-
-    async def get_week_usage(self) -> dict | None:
-        """Get this week's energy usage data."""
-        response = await self._make_api_call(API_WEEK_USAGE_ENDPOINT)
-        if response:
-            return {
-                "usage": response.get("fae_total_usage"),
-            }
-        return None
-
-    async def get_month_usage(self) -> dict | None:
-        """Get this month's energy usage data."""
-        response = await self._make_api_call(API_MONTH_USAGE_ENDPOINT)
-        if response:
-            return {
-                "usage": response.get("fae_total_usage"),
-            }
-        return None
-
-    async def get_today_cost(self) -> dict | None:
-        """Get today's energy cost data."""
-        response = await self._make_api_call(API_TODAY_COST_ENDPOINT)
-        if response:
-            return {
-                "cost": response.get("fae_total_cost"),
-            }
-        return None
-
-    async def get_week_cost(self) -> dict | None:
-        """Get this week's energy cost data."""
-        response = await self._make_api_call(API_WEEK_COST_ENDPOINT)
-        if response:
-            return {
-                "cost": response.get("fae_total_cost"),
-            }
-        return None
-
-    async def get_month_cost(self) -> dict | None:
-        """Get this month's energy cost data."""
-        response = await self._make_api_call(API_MONTH_COST_ENDPOINT)
-        if response:
-            return {
-                "cost": response.get("fae_total_cost"),
-            }
-        return None
-
-    async def get_prices(self) -> dict | None:
+    async def get_prices(self) -> Optional[Dict]:
         """Get energy prices."""
         response = await self._make_api_call(API_PRICES_ENDPOINT)
         if response:
-            from datetime import datetime
             hourly_prices = {}
             current_price = None
             next_hour_price = None
@@ -205,35 +255,14 @@ class PstrykApiClient:
                     if frame_time.hour == (now.hour + 1) % 24:
                         next_hour_price = price
 
-            return {
+            price_data = {
                 "current_price": current_price,
                 "next_hour_price": next_hour_price,
                 "today_price_avg": response.get("price_gross_avg"),
                 "hourly_prices": hourly_prices,
                 "prices_updated": datetime.now().isoformat(),
             }
+            
+            self._last_data.update(price_data)
+            return self._last_data
         return None
-
-    async def get_all_data(self) -> dict | None:
-        """Get all energy data."""
-        today_usage = await self.get_today_usage()
-        week_usage = await self.get_week_usage()
-        month_usage = await self.get_month_usage()
-        today_cost = await self.get_today_cost()
-        week_cost = await self.get_week_cost()
-        month_cost = await self.get_month_cost()
-        prices = await self.get_prices()
-
-        data = {
-            "today_usage": today_usage.get("usage") if today_usage else None,
-            "today_cost": today_cost.get("cost") if today_cost else None,
-            "week_usage": week_usage.get("usage") if week_usage else None,
-            "week_cost": week_cost.get("cost") if week_cost else None,
-            "month_usage": month_usage.get("usage") if month_usage else None,
-            "month_cost": month_cost.get("cost") if month_cost else None,
-        }
-
-        if prices:
-            data.update(prices)
-
-        return data
