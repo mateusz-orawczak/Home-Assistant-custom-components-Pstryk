@@ -82,20 +82,27 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up the Pstryk sensors."""
-    api_client = hass.data[DOMAIN][entry.entry_id]
+    api_client = hass.data[DOMAIN][entry.entry_id]["api"]
+    ws_client = hass.data[DOMAIN][entry.entry_id]["ws"]
 
     coordinator = DataUpdateCoordinator(
         hass,
         _LOGGER,
         name="pstryk",
         update_method=api_client.get_prices,
-        update_interval=timedelta(minutes=3),
     )
 
+    # Store coordinator reference in API client
+    api_client._coordinator = coordinator
+
+    # Store coordinator in hass.data for service access
+    hass.data[DOMAIN]["coordinator"] = coordinator
+
     # Start WebSocket connection
-    await api_client.start_websocket(coordinator.async_set_updated_data)
+    await ws_client.start_websocket(coordinator.async_set_updated_data)
     
-    await coordinator.async_config_entry_first_refresh()
+    # Initial price fetch
+    await coordinator.async_refresh()
 
     entities = []
     
@@ -115,24 +122,26 @@ async def async_setup_entry(
     entities.append(PstrykHourlyPricesSensor(coordinator))
 
     # Add current price template sensor
+    # Hourly prices are in UTC, so we need to adjust for the timezone offset
     entities.append(
         PstrykTemplateSensor(
             hass,
             coordinator,
             "Current Electricity Price",
             "current_price",
-            "{{ states.sensor.today_s_electricity_prices.attributes.hourly_prices[now().strftime('%Y-%m-%dT%H:00:00+00:00')] }}"
+            "{% set tz_offset = int(now().strftime('%z')[:3]) %}{{ states.sensor.today_s_electricity_prices.attributes.hourly_prices[(now() + timedelta(hours=tz_offset)).strftime('%Y-%m-%dT%H:00:00+00:00')] }}"
         )
     )
 
     # Add next hour price template sensor
+    # Hourly prices are in UTC, so we need to adjust for the timezone offset
     entities.append(
         PstrykTemplateSensor(
             hass,
             coordinator,
             "Next Hour Electricity Price",
             "next_hour_price",
-            "{{ states.sensor.today_s_electricity_prices.attributes.hourly_prices[(now() + timedelta(hours=1)).strftime('%Y-%m-%dT%H:00:00+00:00')] }}"
+            "{% set tz_offset = int(now().strftime('%z')[:3]) %}{{ states.sensor.today_s_electricity_prices.attributes.hourly_prices[(now() + timedelta(hours=tz_offset+1)).strftime('%Y-%m-%dT%H:00:00+00:00')] }}"
         )
     )
 
@@ -166,7 +175,7 @@ class PstrykHourlyPricesSensor(CoordinatorEntity, SensorEntity):
     def __init__(self, coordinator):
         """Initialize the sensor."""
         super().__init__(coordinator)
-        self._attr_name = "Today's Electricity Prices"
+        self._attr_name = "Electricity Prices"
         self._attr_unique_id = f"{DOMAIN}_today_prices"
         self._attr_device_class = SensorDeviceClass.MONETARY
         self._attr_native_unit_of_measurement = "PLN/kWh"

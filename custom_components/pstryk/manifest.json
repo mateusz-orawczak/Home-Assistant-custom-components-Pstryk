@@ -1,10 +1,10 @@
 {
   "domain": "pstryk",
   "name": "Pstryk",
-  "version": "0.1.0",
+  "version": "0.2.0",
+  "codeowners": ["@mateusz-orawczak"],
   "documentation": "https://github.com/mateusz-orawczak/Home-Assistant-custom-components-Pstryk",
   "dependencies": [],
-  "codeowners": ["@mateusz-orawczak"],
   "requirements": [],
   "iot_class": "cloud_push",
   "config_flow": true

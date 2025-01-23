@@ -1,0 +1,3 @@
+update_prices:
+  name: Update Prices
+  description: Fetch latest electricity prices from Pstryk API. 
