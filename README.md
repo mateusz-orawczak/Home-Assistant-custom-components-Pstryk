@@ -14,7 +14,7 @@ This custom integration for Home Assistant allows you to monitor your energy usa
   - Current hour price
   - Next hour price
   - Average daily price
-  - Is current price the cheapest?
+  - Cheapest hour indicator
 - Automatic daily price updates at 17:00
 - Manual price update service
 - Secure authentication with automatic token refresh
@@ -44,23 +44,23 @@ The integration requires the following credentials:
 
 The integration creates the following sensors:
 
-| Sensor | Description | Unit |
-|--------|-------------|------|
-| Electricity Prices | Main sensor with hourly prices | PLN/kWh |
-| Current Electricity Price | Price for current hour | PLN/kWh |
-| Next Hour Electricity Price | Price for next hour | PLN/kWh |
-| Today's Average Electricity Price | Average price for today | PLN/kWh |
-| Today's Cheapest Electricity Hour | Time when electricity is cheapest today | timestamp |
-| Is Cheapest Electricity Price | Indicates if current hour is the cheapest | boolean |
-| Today's Energy Usage | Energy consumed today | kWh |
-| Today's Energy Cost | Cost of energy consumed today | PLN |
-| This Week's Energy Usage | Energy consumed this week | kWh |
-| This Week's Energy Cost | Cost of energy consumed this week | PLN |
-| This Month's Energy Usage | Energy consumed this month | kWh |
-| This Month's Energy Cost | Cost of energy consumed this month | PLN |
+| Sensor | Description | Unit | State |
+|--------|-------------|------|-------|
+| Electricity Prices | Main sensor with hourly prices | PLN/kWh | on/off |
+| Current Electricity Price | Price for current hour | PLN/kWh | price |
+| Next Hour Electricity Price | Price for next hour | PLN/kWh | price |
+| Today's Average Electricity Price | Average price for today | PLN/kWh | price |
+| Today's Cheapest Electricity Hour | Time when electricity is cheapest today | timestamp | time |
+| Is Cheapest Electricity Price | Indicates if current hour is the cheapest | - | on/off |
+| Today's Energy Usage | Energy consumed today | kWh | usage |
+| Today's Energy Cost | Cost of energy consumed today | PLN | cost |
+| This Week's Energy Usage | Energy consumed this week | kWh | usage |
+| This Week's Energy Cost | Cost of energy consumed this week | PLN | cost |
+| This Month's Energy Usage | Energy consumed this month | kWh | usage |
+| This Month's Energy Cost | Cost of energy consumed this month | PLN | cost |
 
 The "Electricity Prices" sensor provides the following attributes:
-- `hourly_prices`: Dictionary of hourly prices for today
+- `hourly_prices`: Dictionary of hourly prices for today (UTC timestamps)
 - `prices_updated`: Timestamp of the last price update
 
 ## Services
