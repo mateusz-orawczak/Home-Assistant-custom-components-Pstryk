@@ -15,7 +15,7 @@ from homeassistant.helpers.update_coordinator import (
     CoordinatorEntity,
     DataUpdateCoordinator,
 )
-from homeassistant.helpers.template import Template
+from homeassistant.helpers.template import Template, TemplateError
 
 from .const import DOMAIN, SENSOR_TYPES
 
@@ -24,14 +24,25 @@ _LOGGER = logging.getLogger(__name__)
 class PstrykTemplateSensor(CoordinatorEntity, SensorEntity):
     """Representation of a Pstryk template sensor."""
 
-    def __init__(self, hass, coordinator, name, unique_id, template_str):
-        """Initialize the template sensor."""
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        coordinator: DataUpdateCoordinator,
+        name: str,
+        unique_id: str,
+        template: str,
+        *,
+        device_class: SensorDeviceClass | None = SensorDeviceClass.MONETARY,
+        native_unit_of_measurement: str | None = "PLN/kWh",
+    ):
+        """Initialize the sensor."""
         super().__init__(coordinator)
+        self._template = Template(template, hass)
         self._attr_name = name
         self._attr_unique_id = f"{DOMAIN}_{unique_id}"
-        self._attr_device_class = SensorDeviceClass.MONETARY
-        self._attr_native_unit_of_measurement = "PLN/kWh"
-        self._template = Template(template_str, hass)
+        self._attr_device_class = device_class
+        self._attr_native_unit_of_measurement = native_unit_of_measurement
+        self._hass = hass
         self._attr_icon = "mdi:currency-usd"
 
     @property
@@ -39,42 +50,9 @@ class PstrykTemplateSensor(CoordinatorEntity, SensorEntity):
         """Return the state of the sensor."""
         try:
             return self._template.async_render()
-        except Exception as err:
+        except (TemplateError, ValueError) as err:
             _LOGGER.error("Error rendering template: %s", err)
             return None
-
-class PstrykIsCheapestSensor(CoordinatorEntity, SensorEntity):
-    """Representation of a Pstryk is cheapest sensor."""
-
-    def __init__(self, coordinator):
-        """Initialize the is cheapest sensor."""
-        super().__init__(coordinator)
-        self._attr_name = "Is Cheapest Electricity Price"
-        self._attr_unique_id = f"{DOMAIN}_is_cheapest_price"
-        self._attr_icon = "mdi:cash-check"
-        self._attr_device_class = None  # Binary sensors don't use device class
-        self._attr_state_class = None   # Binary sensors don't use state class
-        self._attr_native_unit_of_measurement = None  # Boolean sensors don't have units
-
-    @property
-    def native_value(self) -> str | None:
-        """Return if current price is the cheapest."""
-        if self.coordinator.data is None or "hourly_prices" not in self.coordinator.data:
-            return None
-            
-        prices = self.coordinator.data.get("hourly_prices", {})
-        if not prices:
-            return None
-
-        current_hour = datetime.now().strftime('%Y-%m-%dT%H:00:00+00:00')
-        current_price = prices.get(current_hour)
-        
-        if current_price is None:
-            return None
-            
-        min_price = min(prices.values())
-        # Return string 'on'/'off' instead of boolean for better HA compatibility
-        return "on" if current_price == min_price else "off"
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -129,24 +107,48 @@ async def async_setup_entry(
             coordinator,
             "Current Electricity Price",
             "current_price",
-            "{% set tz_offset = int(now().strftime('%z')[:3]) %}{{ states.sensor.today_s_electricity_prices.attributes.hourly_prices[(now() + timedelta(hours=tz_offset)).strftime('%Y-%m-%dT%H:00:00+00:00')] }}"
+            "{% set tz_offset = int(now().strftime('%z')[:3]) %}{{ states.sensor.electricity_prices.attributes.hourly_prices[(now() + timedelta(hours=tz_offset)).strftime('%Y-%m-%dT%H:00:00+00:00')] }}",
+            device_class=SensorDeviceClass.MONETARY,
+            native_unit_of_measurement="PLN/kWh",
         )
     )
 
     # Add next hour price template sensor
-    # Hourly prices are in UTC, so we need to adjust for the timezone offset
     entities.append(
         PstrykTemplateSensor(
             hass,
             coordinator,
             "Next Hour Electricity Price",
             "next_hour_price",
-            "{% set tz_offset = int(now().strftime('%z')[:3]) %}{{ states.sensor.today_s_electricity_prices.attributes.hourly_prices[(now() + timedelta(hours=tz_offset+1)).strftime('%Y-%m-%dT%H:00:00+00:00')] }}"
+            "{% set tz_offset = int(now().strftime('%z')[:3]) %}{{ states.sensor.electricity_prices.attributes.hourly_prices[(now() + timedelta(hours=tz_offset+1)).strftime('%Y-%m-%dT%H:00:00+00:00')] }}",
+            device_class=SensorDeviceClass.MONETARY,
+            native_unit_of_measurement="PLN/kWh",
         )
     )
 
     # Add is cheapest price sensor
-    entities.append(PstrykIsCheapestSensor(coordinator))
+    entities.append(
+        PstrykTemplateSensor(
+            hass,
+            coordinator,
+            "Is Cheapest Electricity Price",
+            "is_cheapest_electricity_price",
+            "{% set cheapest_hour = states('sensor.today_s_cheapest_electricity_hour') %}{% if cheapest_hour != 'unavailable' and cheapest_hour != 'unknown' %}{% set cheapest_dt = as_datetime(cheapest_hour) %}{% set tz_offset = int(now().strftime('%z')[:3]) %}{{ 'on' if (cheapest_dt.hour + tz_offset) % 24 == now().hour else 'off' }}{% else %}{{ 'off' }}{% endif %}",
+            device_class=None,
+            native_unit_of_measurement=None,
+        )
+    )
+
+    # Add cheapest hour sensor
+    entities.append(
+        PstrykSensor(
+            coordinator,
+            "cheapest_hour",
+            "Today's Cheapest Electricity Hour",
+            None,
+            "mdi:clock-outline",
+        )
+    )
 
     async_add_entities(entities)
 
@@ -161,6 +163,14 @@ class PstrykSensor(CoordinatorEntity, SensorEntity):
         self._attr_native_unit_of_measurement = unit
         self._attr_icon = icon
         self._attr_unique_id = f"{DOMAIN}_{sensor_type}"
+        
+        # Set device class for timestamp sensor
+        if sensor_type == "cheapest_hour":
+            self._attr_device_class = SensorDeviceClass.TIMESTAMP
+            self._attr_entity_registry_enabled_default = True
+            self._attr_has_entity_name = True
+            self._attr_entity_category = None
+            self._attr_state_class = None
 
     @property
     def native_value(self):

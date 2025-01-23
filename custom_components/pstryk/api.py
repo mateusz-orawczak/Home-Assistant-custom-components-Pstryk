@@ -1,5 +1,5 @@
 """API client for Pstryk."""
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import logging
 from typing import Dict, Optional
 import json
@@ -111,10 +111,25 @@ class PstrykApiClient:
                 if start_time and price:
                     hourly_prices[start_time] = price
 
+            # Find cheapest hour
+            cheapest_hour = None
+            cheapest_price = float('inf')
+            
+            # Take first 24 hours of prices
+            for timestamp, price in list(hourly_prices.items())[:24]:
+                if price < cheapest_price:
+                    cheapest_price = price
+                    # Convert string timestamp to datetime object with timezone
+                    cheapest_hour = datetime.fromisoformat(timestamp)
+                    # Ensure timezone is set (API returns +00:00)
+                    if cheapest_hour.tzinfo is None:
+                        cheapest_hour = cheapest_hour.replace(tzinfo=timezone.utc)
+
             price_data = {
                 "hourly_prices": hourly_prices,
                 "today_price_avg": response.get("today_price_avg"),
                 "prices_updated": datetime.now().isoformat(),
+                "cheapest_hour": cheapest_hour,
             }
             
             # Get current data from coordinator

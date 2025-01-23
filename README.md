@@ -19,6 +19,10 @@ This custom integration for Home Assistant allows you to monitor your energy usa
 - Manual price update service
 - Secure authentication with automatic token refresh
 
+
+![|500](https://github.com/mateusz-orawczak/Home-Assistant-custom-components-Pstryk/blob/main/img/screen_1.jpg)
+![|500](https://github.com/mateusz-orawczak/Home-Assistant-custom-components-Pstryk/blob/main/img/screen_2.jpg)
+
 ## Installation
 
 ### Manual Installation
@@ -29,10 +33,6 @@ This custom integration for Home Assistant allows you to monitor your energy usa
 4. Click the "+ ADD INTEGRATION" button
 5. Search for "Pstryk"
 6. Enter your email and password
-
-### HACS Installation
-
-*Coming soon*
 
 ## Configuration
 
@@ -50,7 +50,8 @@ The integration creates the following sensors:
 | Current Electricity Price | Price for current hour | PLN/kWh |
 | Next Hour Electricity Price | Price for next hour | PLN/kWh |
 | Today's Average Electricity Price | Average price for today | PLN/kWh |
-| Is Cheapest Electricity Price | Indicates if current price is lowest | on/off |
+| Today's Cheapest Electricity Hour | Time when electricity is cheapest today | timestamp |
+| Is Cheapest Electricity Price | Indicates if current hour is the cheapest | boolean |
 | Today's Energy Usage | Energy consumed today | kWh |
 | Today's Energy Cost | Cost of energy consumed today | PLN |
 | This Week's Energy Usage | Energy consumed this week | kWh |
