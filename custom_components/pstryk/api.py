@@ -103,7 +103,6 @@ class PstrykApiClient:
         response = await self._make_api_call(API_PRICES_ENDPOINT)
         if response:
             hourly_prices = {}
-            now = datetime.now()
             
             for frame in response.get("frames", []):
                 start_time = frame.get("start")
@@ -113,23 +112,41 @@ class PstrykApiClient:
 
             # Find cheapest hour
             cheapest_hour = None
-            cheapest_price = float('inf')
             
-            # Take first 24 hours of prices
-            for timestamp, price in list(hourly_prices.items())[:24]:
-                if price < cheapest_price:
-                    cheapest_price = price
+            # Take first 24 hours of prices for today
+            today_cheapest_hour = None
+            today_cheapest_price = float('inf')
+            today_prices = dict(list(hourly_prices.items())[:24])
+            for timestamp, price in today_prices.items():
+                if price < today_cheapest_price:
+                    today_cheapest_price = price
                     # Convert string timestamp to datetime object with timezone
-                    cheapest_hour = datetime.fromisoformat(timestamp)
+                    today_cheapest_hour = datetime.fromisoformat(timestamp)
                     # Ensure timezone is set (API returns +00:00)
-                    if cheapest_hour.tzinfo is None:
-                        cheapest_hour = cheapest_hour.replace(tzinfo=timezone.utc)
+                    if today_cheapest_hour.tzinfo is None:
+                        today_cheapest_hour = today_cheapest_hour.replace(tzinfo=timezone.utc)
+
+            # Take next 24 hours of prices for tomorrow
+            tomorrow_cheapest_hour = None 
+            tomorrow_cheapest_price = float('inf')
+            tomorrow_prices = dict(list(hourly_prices.items())[24:48])
+            if tomorrow_prices:
+                for timestamp, price in tomorrow_prices.items():
+                    if price < tomorrow_cheapest_price:
+                        tomorrow_cheapest_price = price
+                        # Convert string timestamp to datetime object with timezone
+                        tomorrow_cheapest_hour = datetime.fromisoformat(timestamp)
+                        # Ensure timezone is set (API returns +00:00)
+                        if tomorrow_cheapest_hour.tzinfo is None:
+                            tomorrow_cheapest_hour = tomorrow_cheapest_hour.replace(tzinfo=timezone.utc)
 
             price_data = {
-                "hourly_prices": hourly_prices,
+                "today_prices": today_prices,
+                "tomorrow_prices": tomorrow_prices,
                 "today_price_avg": response.get("today_price_avg"),
                 "prices_updated": datetime.now().isoformat(),
-                "cheapest_hour": cheapest_hour,
+                "today_cheapest_hour": today_cheapest_hour,
+                "tomorrow_cheapest_hour": tomorrow_cheapest_hour,
             }
             
             # Get current data from coordinator

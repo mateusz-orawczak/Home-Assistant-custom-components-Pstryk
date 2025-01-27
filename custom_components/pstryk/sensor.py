@@ -96,8 +96,9 @@ async def async_setup_entry(
             )
         )
     
-    # Add hourly prices sensor
-    entities.append(PstrykHourlyPricesSensor(coordinator))
+    # Add today's and tomorrow's rices sensor
+    entities.append(PstrykTodaysPricesSensor(coordinator))
+    entities.append(PstrykTomorrowsPricesSensor(coordinator))
 
     # Add current price template sensor
     # Hourly prices are in UTC, so we need to adjust for the timezone offset
@@ -107,7 +108,7 @@ async def async_setup_entry(
             coordinator,
             "Current Electricity Price",
             "current_price",
-            "{% set tz_offset = int(now().strftime('%z')[:3]) %}{{ states.sensor.electricity_prices.attributes.hourly_prices[(now() + timedelta(hours=tz_offset)).strftime('%Y-%m-%dT%H:00:00+00:00')] }}",
+            "{% set tz_offset = int(now().strftime('%z')[:3]) %}{{ states.sensor.today_s_electricity_prices.attributes.hourly_prices[(now() + timedelta(hours=-tz_offset)).strftime('%Y-%m-%dT%H:00:00+00:00')] }}",
             device_class=SensorDeviceClass.MONETARY,
             native_unit_of_measurement="PLN/kWh",
         )
@@ -120,7 +121,7 @@ async def async_setup_entry(
             coordinator,
             "Next Hour Electricity Price",
             "next_hour_price",
-            "{% set tz_offset = int(now().strftime('%z')[:3]) %}{{ states.sensor.electricity_prices.attributes.hourly_prices[(now() + timedelta(hours=tz_offset+1)).strftime('%Y-%m-%dT%H:00:00+00:00')] }}",
+            "{% set tz_offset = int(now().strftime('%z')[:3]) %}{{ states.sensor.today_s_electricity_prices.attributes.hourly_prices[(now() + timedelta(hours=-tz_offset+1)).strftime('%Y-%m-%dT%H:00:00+00:00')] }}",
             device_class=SensorDeviceClass.MONETARY,
             native_unit_of_measurement="PLN/kWh",
         )
@@ -133,7 +134,7 @@ async def async_setup_entry(
             coordinator,
             "Is Cheapest Electricity Price",
             "is_cheapest_electricity_price",
-            "{% set cheapest_hour = states('sensor.today_s_cheapest_electricity_hour') %}{% if cheapest_hour != 'unavailable' and cheapest_hour != 'unknown' %}{% set cheapest_dt = as_datetime(cheapest_hour) %}{% set tz_offset = int(now().strftime('%z')[:3]) %}{{ 'on' if (cheapest_dt.hour + tz_offset) % 24 == now().hour else 'off' }}{% else %}{{ 'off' }}{% endif %}",
+            "{% set cheapest_hour = states('sensor.today_s_cheapest_electricity_hour') %}{% if cheapest_hour != 'unavailable' and cheapest_hour != 'unknown' %}{% set cheapest_dt = as_datetime(cheapest_hour) %}{% set tz_offset = int(now().strftime('%z')[:3]) %}{{ 'on' if (cheapest_dt.hour - tz_offset) % 24 == now().hour else 'off' }}{% else %}{{ 'off' }}{% endif %}",
             device_class=None,
             native_unit_of_measurement=None,
         )
@@ -143,8 +144,19 @@ async def async_setup_entry(
     entities.append(
         PstrykSensor(
             coordinator,
-            "cheapest_hour",
+            "today_cheapest_hour",
             "Today's Cheapest Electricity Hour",
+            None,
+            "mdi:clock-outline",
+        )
+    )
+
+    # Add tomorrow's cheapest hour sensor
+    entities.append(
+        PstrykSensor(
+            coordinator,
+            "tomorrow_cheapest_hour",
+            "Tomorrow's Cheapest Electricity Hour",
             None,
             "mdi:clock-outline",
         )
@@ -164,8 +176,8 @@ class PstrykSensor(CoordinatorEntity, SensorEntity):
         self._attr_icon = icon
         self._attr_unique_id = f"{DOMAIN}_{sensor_type}"
         
-        # Set device class for timestamp sensor
-        if sensor_type == "cheapest_hour":
+        # Set device class for timestamp sensors
+        if sensor_type in ["today_cheapest_hour", "tomorrow_cheapest_hour"]:
             self._attr_device_class = SensorDeviceClass.TIMESTAMP
             self._attr_entity_registry_enabled_default = True
             self._attr_has_entity_name = True
@@ -177,32 +189,96 @@ class PstrykSensor(CoordinatorEntity, SensorEntity):
         """Return the state of the sensor."""
         if self.coordinator.data is None:
             return None
+            
+        # Get the value directly from coordinator data
         return self.coordinator.data.get(self._sensor_type)
 
-class PstrykHourlyPricesSensor(CoordinatorEntity, SensorEntity):
-    """Sensor for today's electricity prices."""
+class PstrykTodaysPricesSensor(CoordinatorEntity, SensorEntity):
+    """Sensor for today's hourly electricity prices."""
 
     def __init__(self, coordinator):
         """Initialize the sensor."""
         super().__init__(coordinator)
-        self._attr_name = "Electricity Prices"
+        self._attr_name = "Today's Electricity Prices"
         self._attr_unique_id = f"{DOMAIN}_today_prices"
-        self._attr_device_class = SensorDeviceClass.MONETARY
-        self._attr_native_unit_of_measurement = "PLN/kWh"
+        self._attr_device_class = None
+        self._attr_native_unit_of_measurement = None
         self._attr_icon = "mdi:currency-usd"
+        self._attr_native_value = "off"
+
+    def clear_prices(self):
+        """Clear the prices data."""
+        if self.coordinator.data is not None:
+            self.coordinator.data["today_prices"] = {}
+            self.async_write_ha_state()
+
+    def update_prices(self, new_prices):
+        """Update prices with new data."""
+        if self.coordinator.data is not None:
+            self.coordinator.data["today_prices"] = new_prices
+            self.async_write_ha_state()
 
     @property
     def extra_state_attributes(self):
         """Return the state attributes."""
-        if self.coordinator.data is None or "hourly_prices" not in self.coordinator.data:
+        if self.coordinator.data is None or "today_prices" not in self.coordinator.data:
             return {}
             
         return {
-            "hourly_prices": self.coordinator.data.get("hourly_prices", {}),
+            "hourly_prices": self.coordinator.data.get("today_prices", {}),
             "prices_updated": self.coordinator.data.get("prices_updated"),
         }
 
     @property
-    def native_value(self) -> None:
-        """Return None as we don't need a state value."""
-        return None
+    def native_value(self):
+        """Return on if we have prices, off otherwise."""
+        if (self.coordinator.data is not None and 
+            "today_prices" in self.coordinator.data and 
+            self.coordinator.data["today_prices"]):
+            return "on"
+        return "off"
+    
+class PstrykTomorrowsPricesSensor(CoordinatorEntity, SensorEntity):
+    """Sensor for tomorrow's hourly electricity prices."""
+
+    def __init__(self, coordinator):
+        """Initialize the sensor."""
+        super().__init__(coordinator)
+        self._attr_name = "Tomorrow's Electricity Prices"
+        self._attr_unique_id = f"{DOMAIN}_tomorrow_prices"
+        self._attr_device_class = None
+        self._attr_native_unit_of_measurement = None
+        self._attr_icon = "mdi:currency-usd"
+        self._attr_native_value = "off"
+
+    def clear_prices(self):
+        """Clear the prices data."""
+        if self.coordinator.data is not None:
+            self.coordinator.data["tomorrow_prices"] = {}
+            self.async_write_ha_state()
+
+    def update_prices(self, new_prices):
+        """Update prices with new data."""
+        if self.coordinator.data is not None:
+            self.coordinator.data["tomorrow_prices"] = new_prices
+            self.async_write_ha_state()
+
+    @property
+    def extra_state_attributes(self):
+        """Return the state attributes."""
+        if self.coordinator.data is None or "tomorrow_prices" not in self.coordinator.data:
+            return {}
+            
+        return {
+            "hourly_prices": self.coordinator.data.get("tomorrow_prices", {}),
+            "prices_updated": self.coordinator.data.get("prices_updated"),
+        }
+
+    @property
+    def native_value(self):
+        """Return on if we have prices, off otherwise."""
+        if (self.coordinator.data is not None and 
+            "tomorrow_prices" in self.coordinator.data and 
+            self.coordinator.data["tomorrow_prices"]):
+            return "on"
+        return "off"

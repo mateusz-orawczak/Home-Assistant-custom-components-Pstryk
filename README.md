@@ -46,7 +46,7 @@ The integration creates the following sensors:
 
 | Sensor | Description | Unit | State |
 |--------|-------------|------|-------|
-| Electricity Prices | Main sensor with hourly prices | PLN/kWh | on/off |
+| Today's Electricity Prices | Main sensor with hourly prices | PLN/kWh | on/off |
 | Current Electricity Price | Price for current hour | PLN/kWh | price |
 | Next Hour Electricity Price | Price for next hour | PLN/kWh | price |
 | Today's Average Electricity Price | Average price for today | PLN/kWh | price |
@@ -72,6 +72,20 @@ The integration provides the following service:
 ## Automations
 
 The integration automatically creates an automation to update prices daily at 17:00. Feel free to disable it if you don't need it, or change the time in the automation.
+
+## Good to Know
+
+Important implementation details that might be helpful to understand:
+
+1. **WebSocket Periodic Reconnection**
+   - The WebSocket connection is automatically reconnected every 3 hours
+   - This is implemented to prevent data inconsistencies that occur with long-lasting connections to Pstryk's WebSocket server
+   - You might notice brief disconnections in logs - this is expected behavior
+
+2. **First Message Handling**
+   - The first message received after establishing a WebSocket connection is intentionally ignored
+   - This is because Pstryk initially sends cached (potentially outdated) data
+   - This ensures that only fresh, accurate data is processed by the integration
 
 ## Troubleshooting
 

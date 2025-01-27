@@ -5,6 +5,8 @@ import logging
 import voluptuous as vol
 import yaml
 import os
+import asyncio
+from datetime import datetime, timedelta
 
 import aiohttp
 from homeassistant.config_entries import ConfigEntry
@@ -54,6 +56,45 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         coordinator = hass.data[DOMAIN]["coordinator"]
         await coordinator.async_refresh()
 
+    async def handle_midnight_rollover():
+        """Handle the midnight price rollover."""
+        coordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+        
+        # Get entity references
+        tomorrow_sensor = None
+        today_sensor = None
+        
+        for entity in hass.data[DOMAIN][entry.entry_id]["entities"]:
+            if isinstance(entity, PstrykTomorrowsPricesSensor):
+                tomorrow_sensor = entity
+            elif isinstance(entity, PstrykTodaysPricesSensor):
+                today_sensor = entity
+        
+        if tomorrow_sensor and today_sensor:
+            # Get tomorrow's prices
+            if (tomorrow_sensor.coordinator.data and 
+                "tomorrow_prices" in tomorrow_sensor.coordinator.data):
+                new_prices = dict(tomorrow_sensor.coordinator.data["tomorrow_prices"])
+                # Update today's prices
+                today_sensor.update_prices(new_prices)
+            
+            # Clear tomorrow's prices
+            tomorrow_sensor.clear_prices()
+            
+            # Force coordinator update to get new tomorrow's prices
+            await coordinator.async_refresh()
+
+    async def midnight_timer():
+        """Run timer for midnight updates."""
+        while True:
+            now = datetime.now()
+            # Calculate time until next midnight
+            tomorrow = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+            delay = (tomorrow - now).total_seconds()
+            
+            await asyncio.sleep(delay)
+            await handle_midnight_rollover()
+
     # Register service
     hass.services.async_register(DOMAIN, "update_prices", handle_update_prices)
 
@@ -102,6 +143,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     except Exception as err:
         _LOGGER.error("Failed to create automation: %s", err)
+
+    # Start the midnight timer
+    hass.loop.create_task(midnight_timer())
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True

@@ -1,5 +1,5 @@
 """WebSocket client for Pstryk."""
-from datetime import datetime
+from datetime import datetime, timedelta
 import json
 import logging
 import asyncio
@@ -24,6 +24,10 @@ class PstrykWebSocket:
         # Use the same data dictionary as API client
         self._last_data = api_client._last_data
         self._shutdown = False
+        self._closing = False
+        self._last_reconnect = datetime.now()
+        self._reconnect_interval = timedelta(hours=3)
+        self._first_message_ignored = True  # Add flag for first message
 
     async def start_websocket(self, callback: Callable[[Dict], None]) -> None:
         """Start WebSocket connection."""
@@ -100,11 +104,23 @@ class PstrykWebSocket:
                 heartbeat=30,
             ) as websocket:
                 self._ws = websocket
+                self._last_reconnect = datetime.now()
+                self._first_message_ignored = False  # Reset flag on new connection
                 _LOGGER.error("WebSocket connected successfully")
 
                 async for msg in websocket:
+                    # Check for periodic reconnection
+                    if datetime.now() - self._last_reconnect >= self._reconnect_interval:
+                        _LOGGER.error("Performing scheduled WebSocket reconnection")
+                        break  # This will trigger reconnection through the websocket loop
+                        
                     if msg.type == aiohttp.WSMsgType.BINARY:
                         try:
+                            if not self._first_message_ignored:
+                                self._first_message_ignored = True
+                                _LOGGER.error("Ignoring first message after connection")
+                                continue
+                                
                             data = json.loads(msg.data.decode())
                             _LOGGER.error("PSTRYK - WebSocket message: %s", json.dumps(data, indent=2))
                             self._process_ws_message(data)
