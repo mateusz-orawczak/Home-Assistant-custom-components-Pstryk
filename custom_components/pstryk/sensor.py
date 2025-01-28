@@ -162,6 +162,9 @@ async def async_setup_entry(
         )
     )
 
+    # Store entities reference
+    hass.data[DOMAIN][entry.entry_id]["entities"] = entities
+    
     async_add_entities(entities)
 
 class PstrykSensor(CoordinatorEntity, SensorEntity):
@@ -206,12 +209,6 @@ class PstrykTodaysPricesSensor(CoordinatorEntity, SensorEntity):
         self._attr_icon = "mdi:currency-usd"
         self._attr_native_value = "off"
 
-    def clear_prices(self):
-        """Clear the prices data."""
-        if self.coordinator.data is not None:
-            self.coordinator.data["today_prices"] = {}
-            self.async_write_ha_state()
-
     def update_prices(self, new_prices):
         """Update prices with new data."""
         if self.coordinator.data is not None:
@@ -255,12 +252,6 @@ class PstrykTomorrowsPricesSensor(CoordinatorEntity, SensorEntity):
         """Clear the prices data."""
         if self.coordinator.data is not None:
             self.coordinator.data["tomorrow_prices"] = {}
-            self.async_write_ha_state()
-
-    def update_prices(self, new_prices):
-        """Update prices with new data."""
-        if self.coordinator.data is not None:
-            self.coordinator.data["tomorrow_prices"] = new_prices
             self.async_write_ha_state()
 
     @property

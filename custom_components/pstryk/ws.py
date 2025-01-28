@@ -26,8 +26,8 @@ class PstrykWebSocket:
         self._shutdown = False
         self._closing = False
         self._last_reconnect = datetime.now()
-        self._reconnect_interval = timedelta(hours=3)
-        self._first_message_ignored = True  # Add flag for first message
+        self._reconnect_interval = timedelta(hours=2)
+        self._first_message_ignored = True
 
     async def start_websocket(self, callback: Callable[[Dict], None]) -> None:
         """Start WebSocket connection."""
@@ -60,7 +60,7 @@ class PstrykWebSocket:
         while not self._shutdown:
             try:
                 retry_count += 1
-                _LOGGER.error(
+                _LOGGER.debug(
                     "WebSocket connection attempt %d",
                     retry_count,
                 )
@@ -93,7 +93,7 @@ class PstrykWebSocket:
             return
 
         ws_url = WS_ENDPOINT.format(meter_id=meter_id)
-        _LOGGER.error("Attempting WebSocket connection to: %s", ws_url)
+        _LOGGER.debug("Attempting WebSocket connection to: %s", ws_url)
         
         try:
             async with self._session.ws_connect(
@@ -106,42 +106,42 @@ class PstrykWebSocket:
                 self._ws = websocket
                 self._last_reconnect = datetime.now()
                 self._first_message_ignored = False  # Reset flag on new connection
-                _LOGGER.error("WebSocket connected successfully")
+                _LOGGER.debug("WebSocket connected successfully")
 
                 async for msg in websocket:
                     # Check for periodic reconnection
                     if datetime.now() - self._last_reconnect >= self._reconnect_interval:
-                        _LOGGER.error("Performing scheduled WebSocket reconnection")
+                        _LOGGER.debug("Performing scheduled WebSocket reconnection")
                         break  # This will trigger reconnection through the websocket loop
                         
                     if msg.type == aiohttp.WSMsgType.BINARY:
                         try:
                             if not self._first_message_ignored:
                                 self._first_message_ignored = True
-                                _LOGGER.error("Ignoring first message after connection")
+                                _LOGGER.debug("Ignoring first message after connection")
                                 continue
                                 
                             data = json.loads(msg.data.decode())
-                            _LOGGER.error("PSTRYK - WebSocket message: %s", json.dumps(data, indent=2))
+                            _LOGGER.debug("PSTRYK - WebSocket message: %s", json.dumps(data, indent=2))
                             self._process_ws_message(data)
                         except json.JSONDecodeError:
                             _LOGGER.error("Invalid JSON in binary WebSocket message")
                         except UnicodeDecodeError:
                             _LOGGER.error("Failed to decode binary WebSocket message")
                     elif msg.type == aiohttp.WSMsgType.CLOSED:
-                        _LOGGER.error("WebSocket connection closed")
+                        _LOGGER.debug("WebSocket connection closed")
                         break
                     elif msg.type == aiohttp.WSMsgType.ERROR:
                         _LOGGER.error("WebSocket connection error: %s", websocket.exception())
                         break
         except aiohttp.ClientResponseError as resp_err:
             if resp_err.status == 500:
-                _LOGGER.error("PSTRYK - WebSocket authentication error (500), attempting token refresh")
+                _LOGGER.debug("PSTRYK - WebSocket authentication error (500), attempting token refresh")
                 if await self._api_client.refresh_token():
-                    _LOGGER.error("PSTRYK - Token refreshed successfully, retrying connection")
+                    _LOGGER.debug("PSTRYK - Token refreshed successfully, retrying connection")
                     raise  # Re-raise to trigger reconnection with new token
                 else:
-                    _LOGGER.error("PSTRYK - Token refresh failed")
+                    _LOGGER.debug("PSTRYK - Token refresh failed")
             raise  # Re-raise other response errors
         except aiohttp.ClientError as client_err:
             _LOGGER.error("PSTRYK - WebSocket client error: %s", client_err)

@@ -20,6 +20,10 @@ import async_timeout
 from .const import DOMAIN
 from .api import PstrykApiClient
 from .ws import PstrykWebSocket
+from .sensor import (
+    PstrykTomorrowsPricesSensor,
+    PstrykTodaysPricesSensor,
+)
 
 PLATFORMS: list[Platform] = [Platform.SENSOR]
 _LOGGER = logging.getLogger(__name__)

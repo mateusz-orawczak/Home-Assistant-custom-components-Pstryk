@@ -36,14 +36,14 @@ class PstrykApiClient:
         """Authenticate with the API and get meter ID."""
         try:
             async with async_timeout.timeout(10):
-                _LOGGER.error("PSTRYK - Authenticating with email: %s", self._email)
+                _LOGGER.debug("PSTRYK - Authenticating with email: %s", self._email)
                 response = await self._session.post(
                     API_LOGIN_ENDPOINT,
                     json={"email": self._email, "password": self._password},
                 )
                 if response.status == 200:
                     data = await response.json()
-                    _LOGGER.error("PSTRYK - Authentication successful")
+                    _LOGGER.debug("PSTRYK - Authentication successful")
                     self._access_token = data["access"]
                     self._refresh_token = data["refresh"]
                     self._token_expires = datetime.now() + timedelta(minutes=10)
@@ -59,14 +59,13 @@ class PstrykApiClient:
         """Refresh the access token."""
         try:
             async with async_timeout.timeout(10):
-                _LOGGER.error("PSTRYK - Refreshing token using refresh token: %s", self._refresh_token)
+                _LOGGER.debug("PSTRYK - Refreshing token using refresh token: %s", self._refresh_token)
                 response = await self._session.post(
                     API_REFRESH_TOKEN_ENDPOINT,
                     json={"refresh": self._refresh_token},
                 )
                 if response.status == 200:
                     data = await response.json()
-                    _LOGGER.error("PSTRYK - Token refresh response: %s", json.dumps(data, indent=2))
                     self._access_token = data["access"]
                     self._token_expires = datetime.now() + timedelta(minutes=10)
                     return True
@@ -166,14 +165,14 @@ class PstrykApiClient:
         """Make an API call."""
         try:
             async with async_timeout.timeout(10):
-                _LOGGER.error("PSTRYK - Making API call to: %s", endpoint)
+                _LOGGER.debug("PSTRYK - Making API call to: %s", endpoint)
                 response = await self._session.get(
                     endpoint,
                     headers={"Authorization": f"Bearer {self._access_token}"},
                 )
                 if response.status == 200:
                     data = await response.json()
-                    _LOGGER.error("PSTRYK - API response: %s", json.dumps(data, indent=2))
+                    _LOGGER.debug("PSTRYK - API response: %s", json.dumps(data, indent=2))
                     return data
                 _LOGGER.error("PSTRYK - API call failed with status: %s", response.status)
                 return None

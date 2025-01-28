@@ -46,7 +46,8 @@ The integration creates the following sensors:
 
 | Sensor | Description | Unit | State |
 |--------|-------------|------|-------|
-| Today's Electricity Prices | Main sensor with hourly prices | PLN/kWh | on/off |
+| Today's Electricity Prices | Main sensor with today's hourly prices | - | on/off |
+| Tomorrow's Electricity Prices | Main sensor with tomorrow's hourly prices | - | on/off |
 | Current Electricity Price | Price for current hour | PLN/kWh | price |
 | Next Hour Electricity Price | Price for next hour | PLN/kWh | price |
 | Today's Average Electricity Price | Average price for today | PLN/kWh | price |
@@ -59,8 +60,8 @@ The integration creates the following sensors:
 | This Month's Energy Usage | Energy consumed this month | kWh | usage |
 | This Month's Energy Cost | Cost of energy consumed this month | PLN | cost |
 
-The "Electricity Prices" sensor provides the following attributes:
-- `hourly_prices`: Dictionary of hourly prices for today (UTC timestamps)
+Both price sensors provide the following attributes:
+- `hourly_prices`: Dictionary of hourly prices (UTC timestamps)
 - `prices_updated`: Timestamp of the last price update
 
 ## Services
@@ -86,6 +87,7 @@ Important implementation details that might be helpful to understand:
    - The first message received after establishing a WebSocket connection is intentionally ignored
    - This is because Pstryk initially sends cached (potentially outdated) data
    - This ensures that only fresh, accurate data is processed by the integration
+   - Note that after Home Assistant restart, data may be unavailable for up to one minute while waiting for the first valid WebSocket message
 
 ## Troubleshooting
 
