@@ -26,7 +26,7 @@ class PstrykWebSocket:
         self._shutdown = False
         self._closing = False
         self._last_reconnect = datetime.now()
-        self._reconnect_interval = timedelta(hours=2)
+        self._reconnect_interval = timedelta(hours=1)
         self._first_message_ignored = True
 
     async def start_websocket(self, callback: Callable[[Dict], None]) -> None:

@@ -72,14 +72,14 @@ The integration provides the following service:
 
 ## Automations
 
-The integration automatically creates an automation to update prices daily at 17:00. Feel free to disable it if you don't need it, or change the time in the automation.
+The integration automatically creates an automation to update prices daily at 17:00. Feel free to change the time in the automation.
 
 ## Good to Know
 
 Important implementation details that might be helpful to understand:
 
 1. **WebSocket Periodic Reconnection**
-   - The WebSocket connection is automatically reconnected every 3 hours
+   - The WebSocket connection is automatically reconnected every 1 hour
    - This is implemented to prevent data inconsistencies that occur with long-lasting connections to Pstryk's WebSocket server
    - You might notice brief disconnections in logs - this is expected behavior
 

@@ -60,34 +60,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         coordinator = hass.data[DOMAIN]["coordinator"]
         await coordinator.async_refresh()
 
-    async def handle_midnight_rollover():
-        """Handle the midnight price rollover."""
-        coordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
-        
-        # Get entity references
-        tomorrow_sensor = None
-        today_sensor = None
-        
-        for entity in hass.data[DOMAIN][entry.entry_id]["entities"]:
-            if isinstance(entity, PstrykTomorrowsPricesSensor):
-                tomorrow_sensor = entity
-            elif isinstance(entity, PstrykTodaysPricesSensor):
-                today_sensor = entity
-        
-        if tomorrow_sensor and today_sensor:
-            # Get tomorrow's prices
-            if (tomorrow_sensor.coordinator.data and 
-                "tomorrow_prices" in tomorrow_sensor.coordinator.data):
-                new_prices = dict(tomorrow_sensor.coordinator.data["tomorrow_prices"])
-                # Update today's prices
-                today_sensor.update_prices(new_prices)
-            
-            # Clear tomorrow's prices
-            tomorrow_sensor.clear_prices()
-            
-            # Force coordinator update to get new tomorrow's prices
-            await coordinator.async_refresh()
-
+   
     async def midnight_timer():
         """Run timer for midnight updates."""
         while True:
@@ -97,7 +70,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             delay = (tomorrow - now).total_seconds()
             
             await asyncio.sleep(delay)
-            await handle_midnight_rollover()
+            await handle_update_prices()
 
     # Register service
     hass.services.async_register(DOMAIN, "update_prices", handle_update_prices)

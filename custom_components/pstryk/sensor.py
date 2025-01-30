@@ -209,12 +209,6 @@ class PstrykTodaysPricesSensor(CoordinatorEntity, SensorEntity):
         self._attr_icon = "mdi:currency-usd"
         self._attr_native_value = "off"
 
-    def update_prices(self, new_prices):
-        """Update prices with new data."""
-        if self.coordinator.data is not None:
-            self.coordinator.data["today_prices"] = new_prices
-            self.async_write_ha_state()
-
     @property
     def extra_state_attributes(self):
         """Return the state attributes."""
@@ -247,12 +241,6 @@ class PstrykTomorrowsPricesSensor(CoordinatorEntity, SensorEntity):
         self._attr_native_unit_of_measurement = None
         self._attr_icon = "mdi:currency-usd"
         self._attr_native_value = "off"
-
-    def clear_prices(self):
-        """Clear the prices data."""
-        if self.coordinator.data is not None:
-            self.coordinator.data["tomorrow_prices"] = {}
-            self.async_write_ha_state()
 
     @property
     def extra_state_attributes(self):

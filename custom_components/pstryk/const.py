@@ -6,10 +6,11 @@ DOMAIN = "pstryk"
 CONF_EMAIL = "email"
 CONF_PASSWORD = "password"
 
+TIMEZONE_OFFSET = datetime.now().astimezone().strftime('%z')[1:3] + ':' + datetime.now().astimezone().strftime('%z')[3:]
 TODAY = datetime.now().strftime('%Y-%m-%d')
-TODAY_START = f"{TODAY}T00:00:00.000%2B01:00"
+TODAY_START = f"{TODAY}T00:00:00.000%2B{TIMEZONE_OFFSET}"
 TOMORROW = (datetime.now() + timedelta(days=1)).strftime('%Y-%m-%d')
-TOMORROW_END = f"{TOMORROW}T23:59:59.999%2B01:00"
+TOMORROW_END = f"{TOMORROW}T23:59:59.999%2B{TIMEZONE_OFFSET}"
 
 API_BASE_URL = "https://api.pstryk.pl"
 API_LOGIN_ENDPOINT = f"{API_BASE_URL}/auth/token/"
