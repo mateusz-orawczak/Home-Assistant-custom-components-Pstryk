@@ -62,15 +62,37 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
    
     async def midnight_timer():
-        """Run timer for midnight updates."""
+        """Run tasks at midnight."""
         while True:
-            now = datetime.now()
-            # Calculate time until next midnight
-            tomorrow = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
-            delay = (tomorrow - now).total_seconds()
-            
-            await asyncio.sleep(delay)
-            await handle_update_prices()
+            try:
+                now = datetime.now()
+                # Calculate time until next midnight
+                tomorrow = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+                delay = (tomorrow - now).total_seconds()
+                
+                _LOGGER.debug("Midnight timer sleeping for %s seconds", delay)
+                await asyncio.sleep(delay)
+                
+                coordinator = hass.data[DOMAIN]["coordinator"]
+                _LOGGER.info("Midnight timer triggered - updating prices")
+                
+                try:
+                    await coordinator.async_refresh()
+                    _LOGGER.info("Successfully updated prices at midnight")
+                except Exception as err:
+                    _LOGGER.error("Failed to update prices at midnight: %s", err)
+                    # Add a short retry delay if the update fails
+                    await asyncio.sleep(60)
+                    try:
+                        await coordinator.async_refresh()
+                        _LOGGER.info("Successfully updated prices on retry")
+                    except Exception as retry_err:
+                        _LOGGER.error("Failed to update prices on retry: %s", retry_err)
+                    
+            except Exception as err:
+                _LOGGER.error("Error in midnight timer: %s", err)
+                # If something goes wrong, wait a minute and try again
+                await asyncio.sleep(60)
 
     # Register service
     hass.services.async_register(DOMAIN, "update_prices", handle_update_prices)
